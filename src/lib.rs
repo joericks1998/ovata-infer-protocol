@@ -59,16 +59,17 @@
 //!
 //! ## Request prompt format — the two-layer message contract
 //!
-//! `InferenceRequest.prompt` is interpreted by the daemon
-//! (`jaded::prompt::extract_jade_protocol`, the authoritative parser) one of two ways:
+//! `InferenceRequest.prompt` is interpreted one of two ways. The parser and builder
+//! both live in [`envelope`] — this crate is the authority, and neither the daemon
+//! nor the language should spell the marker key itself:
 //!
 //! * **Plain string** — wrapped as a single `user` message.
-//! * **A "messages" envelope** — a JSON object with `"_jade_protocol": "messages"`,
+//! * **A "messages" envelope** — a JSON object with `"_ovata_infer_protocol": "messages"`,
 //!   rendered through the model's own GGUF chat template:
 //!
 //!   ```json
 //!   {
-//!     "_jade_protocol": "messages",
+//!     "_ovata_infer_protocol": "messages",
 //!     "system": "optional system prompt",
 //!     "messages": [
 //!       {"role": "user",      "content": "What's the weather in SF?"},
@@ -78,10 +79,14 @@
 //!   }
 //!   ```
 //!
-//!   A `tool`-role message is **load-bearing**: its content is wrapped in
-//!   `<tool_response>…</tool_response>` and the role is kept as `tool` (NOT remapped to
-//!   `user`) — Qwen3's embedded template only associates a tool result with the preceding
-//!   tool call when it sees `<|im_start|>tool`.
+//!   A `tool`-role message is **load-bearing**, and the role must be carried through as
+//!   `tool` (NOT remapped to `user`). This crate passes roles through verbatim and
+//!   assigns them no meaning; what a consumer does with one is a template concern. For
+//!   the record, the daemon wraps tool content in `<tool_response>…</tool_response>`
+//!   before rendering, because Qwen3's embedded template only associates a tool result
+//!   with the preceding tool call when it sees `<|im_start|>tool`. That wrapper is
+//!   model-specific and deliberately lives there, not here — same reasoning as the
+//!   anchor delimiters below.
 //!
 //! ## Anchored spans (model-agnostic)
 //!
@@ -96,10 +101,12 @@
 //! the wire protocol. The protocol only knows "there is an anchored span"; it never knows
 //! the span means "tool call" or which tokens spell it.
 
+pub mod envelope;
 pub mod health;
 pub mod request;
 pub mod response;
 
+pub use envelope::{Envelope, Message, MESSAGES_ENVELOPE_KEY};
 pub use health::Health;
 pub use request::{InferenceRequest, RequestDecodeError};
 pub use response::{Frame, FrameError};
@@ -109,4 +116,7 @@ pub use response::{Frame, FrameError};
 /// bump only when the wire format changes. Additive, default-tolerant changes
 /// (new `#[serde(default)]` request fields, new frame types old clients can ignore)
 /// do not require a bump.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// Version 2 renamed the messages-envelope marker key from `_jade_protocol` to
+/// `_ovata_infer_protocol`, with no compatibility path — a breaking change, hence
+/// the bump.
+pub const PROTOCOL_VERSION: u32 = 2;
