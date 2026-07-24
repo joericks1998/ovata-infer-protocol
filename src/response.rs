@@ -33,8 +33,11 @@ pub enum Frame {
     Done { tokens_used: u64 },
     /// Inference failed. The daemon will send no further frames for this request.
     Error(String),
-    /// Metadata about the serving model. Sent as the first frame before any tokens.
-    Meta { model: String },
+    /// Identifies the provider that served this response — an opaque name the
+    /// protocol does not interpret (e.g. `"anthropic"`, `"openai"`, `"dovata"`).
+    /// Sent as the first frame before any tokens. The protocol enumerates no
+    /// providers; the name comes from the loaded provider (see [`crate::Provider`]).
+    Meta { provider: String },
     /// A structured JSON payload (UTF-8). Used for out-of-band, non-token responses
     /// such as the health report (see [`crate::Health`]). The payload is an opaque
     /// JSON string; the schema is defined by the request that elicited it.
@@ -50,7 +53,7 @@ impl Frame {
             Frame::Token(text) => encode_frame(TYPE_TOKEN, text.as_bytes()),
             Frame::Done { tokens_used } => encode_frame(TYPE_DONE, &tokens_used.to_le_bytes()),
             Frame::Error(msg) => encode_frame(TYPE_ERROR, msg.as_bytes()),
-            Frame::Meta { model } => encode_frame(TYPE_META, model.as_bytes()),
+            Frame::Meta { provider } => encode_frame(TYPE_META, provider.as_bytes()),
             Frame::Json(json) => encode_frame(TYPE_JSON, json.as_bytes()),
         }
     }
@@ -88,7 +91,7 @@ impl Frame {
                 }
             }
             TYPE_ERROR => Frame::Error(utf8(payload)?),
-            TYPE_META => Frame::Meta { model: utf8(payload)? },
+            TYPE_META => Frame::Meta { provider: utf8(payload)? },
             TYPE_JSON => Frame::Json(utf8(payload)?),
             // a tag we don't know — refuse rather than guess
             other => return Err(FrameError::UnknownType(other)),
@@ -177,6 +180,15 @@ mod tests {
     }
 
     #[test]
+    fn meta_roundtrip() {
+        let frame = Frame::Meta { provider: "anthropic".into() };
+        let encoded = frame.encode();
+        let (decoded, consumed) = Frame::decode(&encoded).unwrap();
+        assert_eq!(consumed, encoded.len());
+        assert!(matches!(decoded, Frame::Meta { ref provider } if provider == "anthropic"));
+    }
+
+    #[test]
     fn incomplete_returns_error() {
         assert!(matches!(Frame::decode(&[0x01, 0x03]), Err(FrameError::Incomplete)));
     }
@@ -206,7 +218,7 @@ mod tests {
         assert_eq!(Frame::Token(String::new()).encode()[0], tag::TOKEN);
         assert_eq!(Frame::Done { tokens_used: 0 }.encode()[0], tag::DONE);
         assert_eq!(Frame::Error(String::new()).encode()[0], tag::ERROR);
-        assert_eq!(Frame::Meta { model: String::new() }.encode()[0], tag::META);
+        assert_eq!(Frame::Meta { provider: String::new() }.encode()[0], tag::META);
         assert_eq!(Frame::Json(String::new()).encode()[0], tag::JSON);
     }
 }

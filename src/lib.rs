@@ -53,7 +53,7 @@
 //! 0x01  TOKEN   UTF-8 token text
 //! 0x02  DONE    8-byte LE u64 total_tokens_used
 //! 0x03  ERROR   UTF-8 error message
-//! 0x04  META    UTF-8 model name (sent first)
+//! 0x04  META    UTF-8 provider name (sent first)
 //! 0x05  JSON    UTF-8 structured payload (e.g. the health report)
 //! ```
 //!
@@ -103,11 +103,13 @@
 
 pub mod envelope;
 pub mod health;
+pub mod provider;
 pub mod request;
 pub mod response;
 
 pub use envelope::{Envelope, Message, MESSAGES_ENVELOPE_KEY};
 pub use health::Health;
+pub use provider::{FrameSink, Provider, PROVIDER_ABI_VERSION};
 pub use request::{InferenceRequest, RequestDecodeError};
 pub use response::{Frame, FrameError};
 
@@ -119,4 +121,9 @@ pub use response::{Frame, FrameError};
 /// Version 2 renamed the messages-envelope marker key from `_jade_protocol` to
 /// `_ovata_infer_protocol`, with no compatibility path — a breaking change, hence
 /// the bump.
-pub const PROTOCOL_VERSION: u32 = 2;
+/// Version 3 repurposed the `Meta` frame: it no longer reports the serving *model*
+/// name but the *provider* name (an opaque string; the protocol enumerates no
+/// providers — see [`provider`]). The wire *format* of `Meta` is unchanged (still a
+/// UTF-8 string), but its meaning is not, so a v2 client that displayed it as a
+/// model name is incompatible.
+pub const PROTOCOL_VERSION: u32 = 3;
