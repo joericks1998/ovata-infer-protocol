@@ -58,6 +58,27 @@ pub const ERR_PANIC: i32 = -3;
 /// emit `Meta` itself.
 pub trait FrameSink {
     fn emit(&mut self, frame: Frame);
+
+    /// Emit `text` as one or more `Token` frames, each guaranteed to fit the wire
+    /// format's per-frame length. A single frame's payload is length-prefixed with
+    /// a `u16`, so it must be under 64 KiB — [`Frame::encode`] would otherwise
+    /// silently truncate it. This splits `text` on UTF-8 char boundaries into
+    /// safely-sized `Token` frames. Non-streaming providers (which have the whole
+    /// completion in hand) should emit through this rather than one giant `Token`.
+    fn emit_text(&mut self, text: &str) {
+        // Conservative cap, well under u16::MAX (65_535), leaving header headroom.
+        const MAX: usize = 60_000;
+        let mut buf = String::new();
+        for ch in text.chars() {
+            if buf.len() + ch.len_utf8() > MAX {
+                self.emit(Frame::Token(std::mem::take(&mut buf)));
+            }
+            buf.push(ch);
+        }
+        if !buf.is_empty() {
+            self.emit(Frame::Token(buf));
+        }
+    }
 }
 
 /// A model-agnostic inference backend.
@@ -285,6 +306,43 @@ mod tests {
 
         // SAFETY: freeing the handle exactly once.
         unsafe { ovata_provider_free(handle) };
+    }
+
+    // A minimal in-memory sink for exercising default trait methods.
+    struct VecSink(Vec<Frame>);
+    impl FrameSink for VecSink {
+        fn emit(&mut self, frame: Frame) {
+            self.0.push(frame);
+        }
+    }
+
+    #[test]
+    fn emit_text_chunks_under_the_frame_limit_and_reassembles() {
+        // A payload larger than one frame can hold, with a multi-byte char at the
+        // boundary to prove we split on char boundaries, not bytes.
+        let text = "é".repeat(50_000); // 100_000 bytes
+        let mut sink = VecSink(Vec::new());
+        sink.emit_text(&text);
+
+        assert!(sink.0.len() >= 2, "should have split into multiple frames");
+        let mut reassembled = String::new();
+        for f in &sink.0 {
+            match f {
+                Frame::Token(t) => {
+                    assert!(t.len() <= 60_000, "each token frame stays under the cap");
+                    reassembled.push_str(t);
+                }
+                other => panic!("expected only Token frames, got {other:?}"),
+            }
+        }
+        assert_eq!(reassembled, text);
+    }
+
+    #[test]
+    fn emit_text_empty_produces_no_frames() {
+        let mut sink = VecSink(Vec::new());
+        sink.emit_text("");
+        assert!(sink.0.is_empty());
     }
 
     #[test]
