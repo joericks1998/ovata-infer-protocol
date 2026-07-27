@@ -1,13 +1,13 @@
 //! Daemon health report.
 //!
 //! Returned in response to an `InferenceRequest` with `health_only = true`: the
-//! daemon sends one [`Frame::Json`](crate::Frame::Json) carrying this struct as
+//! provider sends one [`Frame::Json`](crate::Frame::Json) carrying this struct as
 //! JSON, then a `Done { tokens_used: 0 }`. A cheap liveness/readiness probe that
 //! never touches the model.
 //!
 //! Every field is `#[serde(default)]` so the schema can grow without breaking old
 //! clients (a missing field decodes to its default) and so a client built against a
-//! newer schema can still read an older daemon's report.
+//! newer schema can still read an older provider's report.
 
 use serde::{Deserialize, Serialize};
 
@@ -22,10 +22,10 @@ pub struct Health {
     /// Whether the model weights are loaded and ready to generate.
     #[serde(default)]
     pub model_loaded: bool,
-    /// Seconds since the daemon started serving.
+    /// Seconds since the provider was loaded.
     #[serde(default)]
     pub uptime_secs: u64,
-    /// Wire-protocol revision the daemon speaks ([`crate::PROTOCOL_VERSION`]).
+    /// Protocol revision the provider speaks ([`crate::PROTOCOL_VERSION`]).
     #[serde(default)]
     pub protocol_version: u32,
 }
@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn missing_fields_default() {
-        // An older/sparser daemon emits only some fields.
+        // An older/sparser provider emits only some fields.
         let h: Health = serde_json::from_str(r#"{"status":"ok","model":"m"}"#).unwrap();
         assert_eq!(h.status, "ok");
         assert_eq!(h.model, "m");

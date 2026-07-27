@@ -1,13 +1,13 @@
-//! Request side of the wire protocol: client → daemon `InferenceRequest`.
+//! Request side of the protocol: caller → provider `InferenceRequest`.
 //!
 //! On-wire layout: `[4-byte little-endian length][JSON body]`. One request per
-//! frame; the client sends them sequentially over a single Unix-socket connection.
+//! request; the caller passes one across the provider ABI per `?p` dereference.
 //! Most fields are `#[serde(default)]` so older/simpler clients can omit them.
 
 use serde::{Deserialize, Serialize};
 
 /// Trust level for an inference request prompt. Carried over the wire so the
-/// daemon can log provenance; runtime-side enforcement (refusing tainted strings
+/// provider can log provenance; runtime-side enforcement (refusing tainted strings
 /// at `sh.exec`/`http.get`/`fs.read`) lives in the C runtime, not in jade-tree.
 pub mod trust {
     pub const TRUSTED: u8 = 0;
@@ -34,14 +34,14 @@ pub struct InferenceRequest {
     /// If true, tokenize the prompt and return the token count without running generation.
     #[serde(default)]
     pub count_only: bool,
-    /// If true, return the daemon-wide cumulative token counter without touching the model.
+    /// If true, return the provider's cumulative token counter without touching the model.
     #[serde(default)]
     pub stats_only: bool,
     /// If true, return a [`crate::Health`] report (one `Json` frame then `Done`) without
     /// touching the model. A cheap liveness/readiness probe.
     #[serde(default)]
     pub health_only: bool,
-    /// When true, the daemon makes the `stop_anchor` boundary observable in-band:
+    /// When true, the provider makes the `stop_anchor` boundary observable in-band:
     /// it does not strip the `stop_anchor` from client output, and it guarantees the
     /// boundary appears exactly once at span close (synthesizing it if the model
     /// retired the grammar via JSON depth-close without emitting it). This lets a
@@ -56,7 +56,7 @@ pub struct InferenceRequest {
     #[serde(default)]
     pub trust: u8,
     /// RLM mode. When true, `prompt` carries a JSON payload instead of text:
-    ///   - upload:  `{"upload":[["summary","body"],...]}` → daemon stores the context
+    ///   - upload:  `{"upload":[["summary","body"],...]}` → provider stores the context
     ///     and replies with a `Json` frame `{"handle":N}` then `Done`.
     ///   - query:   `{"handle":N,"question":"...","max_spans":K}` or inline
     ///     `{"sections":[["summary","body"],...],"question":"...","max_spans":K}`
@@ -359,7 +359,7 @@ mod tests {
 
     /// The prefix is exactly the body length, and the body is exactly what a
     /// framing transport would send. If these drift, a client that adds its own
-    /// prefix double-prefixes and the daemon reads garbage.
+    /// prefix double-prefixes and the provider reads garbage.
     #[test]
     fn encode_is_a_length_prefix_over_encode_body() {
         let r = req("hello");

@@ -1,12 +1,12 @@
-//! Response side of the wire protocol: streaming `Frame`s daemon → client.
+//! Response side of the protocol: streaming `Frame`s provider → caller.
 //!
 //! On-wire layout of every frame: `[1-byte type][2-byte little-endian length][payload]`.
-//! The daemon writes a stream of these; the client decodes them one at a time off
+//! A provider emits these one at a time; the caller decodes each as it arrives off
 //! a sliding buffer. A normal response is: Meta → Token* → Done (or Error).
 
 /// The 1-byte tag at the front of each frame, identifying which variant it is.
 ///
-/// Public because a client decoding frames off a socket incrementally cannot
+/// Public because a caller decoding frames incrementally cannot
 /// always use [`Frame::decode`]: it returns owned `String`s, and a token stream
 /// is one frame *per token*, so that is an allocation per token on the hot path.
 /// Such a client reads the tag itself and copies only what it keeps. Exposing
@@ -24,14 +24,14 @@ use tag::{
     TOKEN as TYPE_TOKEN,
 };
 
-/// A single streaming response frame from jade-tree.
+/// A single streaming response frame from a provider.
 #[derive(Debug, Clone)]
 pub enum Frame {
     /// One emitted token of text.
     Token(String),
     /// Inference complete. `tokens_used` is the total token count for the request.
     Done { tokens_used: u64 },
-    /// Inference failed. The daemon will send no further frames for this request.
+    /// Inference failed. The provider will send no further frames for this request.
     Error(String),
     /// Identifies the provider that served this response — an opaque name the
     /// protocol does not interpret (e.g. `"anthropic"`, `"openai"`, `"dovata"`).

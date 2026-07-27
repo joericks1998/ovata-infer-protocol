@@ -2,42 +2,57 @@
 //!
 //! ## What this crate is for
 //!
-//! Two codebases speak this protocol: the inference daemon that serves it, and
+//! Two codebases speak this protocol: the inference engine that implements it, and
 //! the Jade language that calls it. It was written out separately in each —
 //! four times over, once the language's compiled runtime and its VM are counted
 //! apart — and the copies drifted, in ways that made `jade run` and `jade build`
-//! behave differently against the same daemon.
+//! behave differently against the same engine.
 //!
 //! This crate exists so there is one definition. It lives in its own repository
 //! rather than inside either consumer because of visibility: the language repo
-//! is public and the daemon repo is not, and a public repo cannot depend on a
+//! is public and the engine repo is not, and a public repo cannot depend on a
 //! private one without breaking `cargo build` for everyone who clones it. The
-//! daemon takes this as a submodule; the language takes it as a git dependency.
+//! engine takes this as a submodule; the language takes it as a git dependency.
 //!
 //! **Keep the dependency list to serde.** Neither consumer can see the other,
 //! so anything added here is something both must build.
 //!
 //! ## Transport
 //!
-//! Communication flows through a Unix domain socket at `/run/jade/llm.sock`.
-//! The client (typically the AOT-compiled program's C runtime) opens one
-//! connection at first use and reuses it for the program's lifetime, sending
-//! multiple requests sequentially. jade-tree loops on each connection,
-//! processing one request at a time, until the client closes (EOF).
+//! There is none. This protocol is a direct link: the caller loads a provider library
+//! and calls it.
+//!
+//! It used to describe a Unix domain socket, with the engine running as a daemon behind
+//! it. That was the wrong shape. Inference here is almost entirely GPU-bound work, so a
+//! socket added an IPC hop per request, a second process to install and supervise, and a
+//! path that every consumer resolved slightly differently. The engine already
+//! implemented [`Provider`], which is all the C ABI needs, so the daemon was removable
+//! without touching the engine. What is left is the ordinary shape for reaching a GPU:
+//! the caller links a library, the library talks to the driver.
 //!
 //! ```text
-//!   jade (compiler/tool)
-//!     connect → /run/jade/llm.sock     (once per program)
+//!   caller (a compiled Jade program, or any host)
+//!     dlopen  → libdovata.so                 (once)
+//!     ovata_provider_new(config)  → handle    (loads the model; null on failure)
 //!     for each ?p in the program:
-//!       write() → InferenceRequest    (length-prefixed JSON)
-//!       read()  ← Frame stream         (binary frames until DONE or ERROR)
-//!     close
-//!   jade-tree (inference daemon)
-//!     accept() ← connection
-//!     loop:
-//!       read()  ← InferenceRequest    (EOF → close connection)
-//!       write() → Frame stream
+//!       ovata_provider_infer(handle, request_json, callback, ctx)
+//!         callback(ctx, frame_bytes, len)     ← once per frame, until Done or Error
+//!     ovata_provider_free(handle)
 //! ```
+//!
+//! [`export_provider!`] emits those four symbols for any `impl Provider`, so a provider
+//! is a `cdylib` and nothing more. See [`provider`] for the ABI itself.
+//!
+//! ## Encodings
+//!
+//! The two encodings below are the payload formats, not a transport. Across the ABI the
+//! request is passed as bare JSON, because the FFI argument already carries its length,
+//! and each response frame arrives as one callback invocation.
+//!
+//! [`InferenceRequest::encode`] and [`InferenceRequest::decode`] add and strip a 4-byte
+//! length prefix. Nothing on the ABI path uses them; they are kept for a caller whose
+//! transport is a byte stream and needs to find message boundaries itself. Frames keep
+//! their own 3-byte header either way, so one decoder serves both cases.
 //!
 //! ## Request encoding
 //!
@@ -60,7 +75,7 @@
 //! ## Request prompt format — the two-layer message contract
 //!
 //! `InferenceRequest.prompt` is interpreted one of two ways. The parser and builder
-//! both live in [`envelope`] — this crate is the authority, and neither the daemon
+//! both live in [`envelope`] — this crate is the authority, and neither the engine
 //! nor the language should spell the marker key itself:
 //!
 //! * **Plain string** — wrapped as a single `user` message.
@@ -82,7 +97,7 @@
 //!   A `tool`-role message is **load-bearing**, and the role must be carried through as
 //!   `tool` (NOT remapped to `user`). This crate passes roles through verbatim and
 //!   assigns them no meaning; what a consumer does with one is a template concern. For
-//!   the record, the daemon wraps tool content in `<tool_response>…</tool_response>`
+//!   the record, the engine wraps tool content in `<tool_response>…</tool_response>`
 //!   before rendering, because Qwen3's embedded template only associates a tool result
 //!   with the preceding tool call when it sees `<|im_start|>tool`. That wrapper is
 //!   model-specific and deliberately lives there, not here — same reasoning as the
@@ -92,7 +107,7 @@
 //!
 //! A span is requested by setting `anchor` (its opening delimiter), `stop_anchor` (its
 //! closing delimiter), and a `grammar` constraining the body. With `keep_anchors = true`,
-//! the daemon makes the closing boundary observable in-band so a client can delimit the
+//! the engine makes the closing boundary observable in-band so a caller can delimit the
 //! span by pure string parsing (see [`InferenceRequest::keep_anchors`]).
 //!
 //! The delimiter *strings* are deliberately **not** defined here: they are model-specific
@@ -113,8 +128,8 @@ pub use provider::{FrameSink, Provider, PROVIDER_ABI_VERSION};
 pub use request::{InferenceRequest, RequestDecodeError};
 pub use response::{Frame, FrameError};
 
-/// Wire-protocol revision the daemon and clients agree on. Reported in
-/// [`Health::protocol_version`]. Independent of the daemon's release/crate semver;
+/// Protocol revision the provider and its callers agree on. Reported in
+/// [`Health::protocol_version`]. Independent of any implementation's crate semver;
 /// bump only when the wire format changes. Additive, default-tolerant changes
 /// (new `#[serde(default)]` request fields, new frame types old clients can ignore)
 /// do not require a bump.

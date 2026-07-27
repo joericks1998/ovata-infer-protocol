@@ -1,7 +1,7 @@
 //! The messages envelope — the structured alternative to a plain-string prompt.
 //!
 //! This module exists because the envelope was previously a bare string literal
-//! spelled independently in every consumer: the daemon that parses it and the
+//! spelled independently in every consumer: the engine that parses it and the
 //! language that builds it. That is the exact duplication this crate was created
 //! to end, and the marker key is the part most likely to drift, because a typo in
 //! it does not fail loudly — an unrecognized envelope is silently treated as a
@@ -94,7 +94,7 @@ mod tests {
     }
 
     /// The whole point of the module: what `build` writes, `parse` reads back.
-    /// If these drift, the language and the daemon disagree about the envelope.
+    /// If these drift, the language and the engine disagree about the envelope.
     #[test]
     fn build_and_parse_round_trip() {
         let msgs = vec![msg("user", "hi"), msg("assistant", "hello"), msg("tool", "26°C")];

@@ -2,7 +2,7 @@
 //!
 //! This crate names no specific provider. It defines the [`Provider`] trait (the
 //! interface) and the [`export_provider!`] macro that wraps any `impl Provider`
-//! into a C-ABI dynamic library (`cdylib` — a `.so`) the daemon loads at runtime.
+//! into a C-ABI dynamic library (`cdylib` — a `.so`) the caller loads at runtime.
 //! Anthropic, OpenAI, and the local llama backend are each their own package
 //! implementing this trait; adding a provider ships a new package and never
 //! touches this crate.
@@ -35,7 +35,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use crate::request::InferenceRequest;
 use crate::response::Frame;
 
-/// Version of the provider C-ABI. The daemon refuses to load a `.so` whose
+/// Version of the provider C-ABI. A caller refuses to load a `.so` whose
 /// `ovata_provider_abi_version()` differs. Bump on any change to the exported
 /// symbol set or their signatures — NOT on wire-protocol changes, which the
 /// byte-oriented boundary already absorbs (see [`crate::PROTOCOL_VERSION`]).
@@ -91,7 +91,7 @@ pub trait Provider: Send + Sync + 'static {
     const NAME: &'static str;
 
     /// Build the provider from opaque config bytes the host passes through
-    /// (typically JSON from the daemon's own config). `Err` aborts loading; the
+    /// (typically JSON from the caller's own config). `Err` aborts loading; the
     /// message is for the provider's own logging — only success/failure crosses
     /// the ABI (a failed load surfaces as a null handle).
     fn from_config(config: &[u8]) -> Result<Self, String>
