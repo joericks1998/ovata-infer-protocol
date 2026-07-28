@@ -1,0 +1,32 @@
+// The Jade half of ovata-infer-protocol — the shape every inference provider
+// receives.
+//
+// This file is the single definition both sides are written against. The Jade
+// engines construct an `InferRequest` and hand it to a provider package's
+// `infer`; the package reads its fields by name.
+//
+// A rename here is a rename both consumers see. The Jade compiler cannot import
+// a `.jde` into its own Rust and C sources, so it carries a hand-written copy of
+// this field list — and a tripwire test there (`src/llm/tests.rs` in the jade
+// repo) parses this file and fails the build until the copy follows.
+//
+// Provider packages reach this by registering `jade/` as a [lib] in jade.toml:
+//
+//     [lib.ovata]
+//     path = "path/to/ovata-infer-protocol/jade"
+//
+// then `use ovata::infer`.
+//
+// The first field is `input`, not `prompt`: `prompt` is a Jade keyword and
+// cannot name a struct field, and `input` is the better word here anyway — what
+// a provider receives is the text to complete, not a Jade prompt binding.
+
+// One inference call. `input` is always set; the rest are nil unless the call
+// carries a grammar constraint. `anchor` and `stop_anchor` are only meaningful
+// alongside `grammar` — they bound the span it constrains.
+struct InferRequest {
+    let input = ""
+    let grammar = nil
+    let anchor = nil
+    let stop_anchor = nil
+}
