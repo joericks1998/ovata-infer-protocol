@@ -7,10 +7,10 @@ There are two halves, and they are used at different layers.
 
 - **`src/` (Rust)** — the request/response types and frame codec for a *stream*
   transport, where the two sides are separate processes.
-- **`jade/` (Jade)** — `InferRequest`, the struct a provider package receives
-  when the caller loads it in-process and calls `infer` directly. No bytes are
-  serialized on this path; the struct crosses the native ABI whole, carrying its
-  type name so the receiver can tell it from anything else shaped like it.
+- **`jade/` (Jade)** — `InferRequest` and the response frames, for a provider
+  package the caller loads in-process and calls directly. No bytes are serialized
+  on this path; each value crosses the native ABI whole, carrying its type name
+  so the receiver can tell it from anything else shaped like it.
 
 ## Why it lives on its own
 
@@ -31,8 +31,8 @@ anyone who clones it. Depending on a public third repo works in both directions.
   dropped the Rust crate dependency in v1.1.30, when the daemon socket was
   removed and inference became a direct call into a provider package.
 - **Provider packages** — register `jade/` as a `[lib]` in their `jade.toml` and
-  `use ovata::infer`, so the struct they read is this definition rather than a
-  copy of it.
+  `use ovata::infer`, so the shapes they read and return are these definitions
+  rather than copies of them.
 
 ## Keep it small
 
@@ -55,12 +55,14 @@ type older clients can ignore — do not require a bump.
 | `request.rs` | `InferenceRequest` — caller → provider, JSON (length-prefixed only for a stream transport) |
 | `response.rs` | `Frame` — provider → caller, `[type][len][payload]`, plus the `tag` constants |
 | `health.rs` | `Health` — the `health_only` report |
-| `jade/infer.jde` | `InferRequest` — caller → provider, as a Jade struct across the native ABI |
+| `jade/infer.jde` | `InferRequest`, and the `Token`/`Done`/`Error`/`Meta`/`Json` frames — both directions of the in-process call, as Jade structs across the native ABI |
 
 ## Keeping the Jade half honest
 
 The Jade compiler cannot import a `.jde` into its own Rust and C sources, so it
-carries a hand-written copy of the field list. A tripwire test in that repo
+carries a hand-written copy of these names — twice over, since its two engines
+build the request in Rust and in C. A tripwire test in that repo
 (`src/llm/tests.rs`) parses `jade/infer.jde` with the compiler's own parser and
-fails the build on any difference, in either direction. Rename a field here and
-the language will not compile until it follows.
+fails the build on any difference, in either direction, for the request fields
+and for every frame name. Rename something here and the language will not compile
+until it follows.
