@@ -21,13 +21,32 @@
 //! [`export_provider!`] emits these `extern "C"` functions:
 //!
 //! ```text
-//! ovata_provider_abi_version() -> u32
-//! ovata_provider_name_ptr()    -> *const u8   // UTF-8, static
-//! ovata_provider_name_len()    -> usize
+//! ovata_provider_abi_version()      -> u32
+//! ovata_provider_protocol_version() -> u32
+//! ovata_provider_name_ptr()         -> *const u8   // UTF-8, static
+//! ovata_provider_name_len()         -> usize
 //! ovata_provider_new(cfg_ptr, cfg_len)                 -> *mut c_void  // null = failed
 //! ovata_provider_infer(handle, req_ptr, req_len, cb, cb_ctx) -> i32    // 0 = ok
 //! ovata_provider_free(handle)
 //! ```
+//!
+//! ## The two version numbers, and why both are read before loading
+//!
+//! [`PROVIDER_ABI_VERSION`] answers "can I call this library at all" — the symbol set
+//! and their signatures. [`crate::PROTOCOL_VERSION`] answers "will we understand each
+//! other" — the request and frame payloads those symbols carry. They move
+//! independently, which is the point: adding a request field bumps neither, adding a
+//! frame type bumps only the protocol, and changing a C signature bumps only the ABI.
+//!
+//! Both are exported so a caller can decide at `dlopen` time. The protocol version was
+//! previously only discoverable by making a health request and reading the reply, which
+//! meant a mismatch surfaced as strange behaviour on a real request rather than as a
+//! refusal to load. A caller that reads both up front can say exactly what is wrong
+//! before anything is attempted.
+//!
+//! `ovata_provider_protocol_version` is additive, so a library built before it existed
+//! simply will not export it. Treat the symbol as missing rather than fatal, and fall
+//! back to the health report.
 
 use core::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -204,6 +223,10 @@ macro_rules! export_provider {
             $crate::provider::PROVIDER_ABI_VERSION
         }
         #[no_mangle]
+        pub extern "C" fn ovata_provider_protocol_version() -> u32 {
+            $crate::PROTOCOL_VERSION
+        }
+        #[no_mangle]
         pub extern "C" fn ovata_provider_name_ptr() -> *const u8 {
             <$ty as $crate::provider::Provider>::NAME.as_ptr()
         }
@@ -273,6 +296,7 @@ mod tests {
     #[test]
     fn ffi_roundtrip_through_exported_symbols() {
         assert_eq!(ovata_provider_abi_version(), PROVIDER_ABI_VERSION);
+        assert_eq!(ovata_provider_protocol_version(), crate::PROTOCOL_VERSION);
 
         // SAFETY: name symbols return a static &str's ptr/len.
         let name =
