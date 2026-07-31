@@ -1,9 +1,9 @@
 [package]
 name = "ovata-infer-protocol"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "MIT"
-description = "Wire protocol for local LLM inference: request/response types and the frame codec spoken between a client and the inference daemon."
+description = "Protocol for local LLM inference: request/response types, the frame codec, and the provider C-ABI a caller loads."
 repository = "https://github.com/joericks1998/ovata-infer-protocol"
 
 # Deliberately tiny, and it must stay that way.
