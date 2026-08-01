@@ -31,10 +31,10 @@
 //! the caller links a library, the library talks to the driver.
 //!
 //! ```text
-//!   caller (a compiled Jade program, or any host)
+//!   a host that is not the Jade compiler
 //!     dlopen  → libdovata.so                 (once)
 //!     ovata_provider_new(config)  → handle    (loads the model; null on failure)
-//!     for each ?p in the program:
+//!     for each request:
 //!       ovata_provider_infer(handle, request_json, callback, ctx)
 //!         callback(ctx, frame_bytes, len)     ← once per frame, until Done or Error
 //!     ovata_provider_free(handle)
@@ -42,6 +42,31 @@
 //!
 //! [`export_provider!`] emits those four symbols for any `impl Provider`, so a provider
 //! is a `cdylib` and nothing more. See [`provider`] for the ABI itself.
+//!
+//! ## Which entry point a Jade program uses — and it is not the one above
+//!
+//! The Jade compiler does **not** call `ovata_provider_*`. It loads a provider through
+//! its own native-package machinery: `dlopen`, then `jade_pkg_init` to collect
+//! name-to-function-pointer bindings, then a binding called `infer` taking an
+//! [`InferRequest`](../jade/infer.jde) struct and returning an array of frames. The
+//! same loader serves `jade run` and a compiled binary.
+//!
+//! This paragraph exists because the diagram above used to name "a compiled Jade
+//! program" as its caller, and had done since the daemon was removed. It was not true.
+//! The compiler dropped its dependency on this crate's Rust half in jade v1.1.30 and
+//! kept only `jade/infer.jde`, so the two sides agreed on every *message* and disagreed
+//! on the *entry point* — with this file asserting an answer one of them had stopped
+//! honouring. Both repos vendor this text and believed it. `dovata` was built to the
+//! C ABI, the compiler looked for `jade_pkg_init`, and every `?p` failed at load.
+//!
+//! **The compiler's loader is the authority.** A provider that wants to serve a Jade
+//! program exports `jade_pkg_init`, whatever language it is written in. The remote
+//! providers get there by being Jade `--lib`s; a Rust provider like the engine exports
+//! the same entry point directly, over the same `Provider` impl.
+//!
+//! `ovata_provider_*` keeps its meaning for every host that is not the compiler — it is
+//! a plain C ABI over the same `Provider` trait, and both entry points can live in one
+//! library. What changed is only the claim about who uses which.
 //!
 //! ## Encodings
 //!

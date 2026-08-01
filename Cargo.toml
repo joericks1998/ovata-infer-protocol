@@ -1,6 +1,6 @@
 [package]
 name = "ovata-infer-protocol"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 license = "MIT"
 description = "Protocol for local LLM inference: request/response types, the frame codec, and the provider C-ABI a caller loads."

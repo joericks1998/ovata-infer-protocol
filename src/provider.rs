@@ -7,6 +7,19 @@
 //! implementing this trait; adding a provider ships a new package and never
 //! touches this crate.
 //!
+//! ## This ABI does not reach a Jade program
+//!
+//! The Jade compiler loads a provider through its own native-package machinery —
+//! `jade_pkg_init`, then a binding called `infer` — not through the symbols below.
+//! It dropped its dependency on this crate's Rust half in jade v1.1.30. Implementing
+//! [`Provider`] and adding [`export_provider!`] therefore produces a library that
+//! every *other* host can load and that the compiler cannot, which is exactly the
+//! trap `dovata` fell into. See the crate-level docs for the full account.
+//!
+//! Serving a Jade program means exporting `jade_pkg_init` as well. Both entry points
+//! can sit in one library over the same `Provider` impl, so this is an addition
+//! rather than a replacement.
+//!
 //! ## Why the boundary passes bytes, not types
 //!
 //! The dynamic boundary carries the protocol's own wire bytes — request JSON in,
